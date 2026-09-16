@@ -174,7 +174,9 @@ return [
             'SENDPULSE_FLOW_NO_INTERESADO_ID'
         ),
 
-        'request_delay_ms'      => 125,
+        'request_delay_ms'      => 3000,
+
+        'reopen_live_sendpulse_delay_ms' => 4000,
     ],
 
     'runtime'   => [

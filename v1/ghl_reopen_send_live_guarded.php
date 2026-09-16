@@ -110,7 +110,14 @@ $spFlowNotInterestedId = trim((string) (
     ?? $sendpulse['flow_not_interested_id']
     ?? ''
 ));
-$spRequestDelayMs = max(0, (int) ($sendpulse['request_delay_ms'] ?? 125));
+$spRequestDelayMs = max(
+    0,
+    (int) ($sendpulse['request_delay_ms'] ?? 3000)
+);
+$reopenLiveSendPulseDelayMs = max(
+    0,
+    (int) ($sendpulse['reopen_live_sendpulse_delay_ms'] ?? 4000)
+);
 
 $timezone = trim((string) ($runtime['timezone'] ?? 'America/Mexico_City'));
 $httpTimeout = max(1, (int) ($runtime['http_timeout_seconds'] ?? 35));
@@ -256,6 +263,7 @@ switch ($action) {
             spFlowInterestedId: $spFlowInterestedId,
             spFlowNotInterestedId: $spFlowNotInterestedId,
             spRequestDelayMs: $spRequestDelayMs,
+            reopenLiveSendPulseDelayMs: $reopenLiveSendPulseDelayMs,
             httpTimeout: $httpTimeout,
             httpConnectTimeout: $httpConnectTimeout,
             httpMaxAttempts: $httpMaxAttempts
@@ -905,6 +913,7 @@ function processSendBatchAction(
     string $spFlowInterestedId,
     string $spFlowNotInterestedId,
     int $spRequestDelayMs,
+    int $reopenLiveSendPulseDelayMs,
     int $httpTimeout,
     int $httpConnectTimeout,
     int $httpMaxAttempts
@@ -1241,7 +1250,11 @@ function processSendBatchAction(
                             $sendPulseAuthCalls += $spAuthMode === 'oauth' ? 1 : 0;
                         }
 
-                        if ($lastSpLookupWasMade && $spRequestDelayMs > 0) {
+                        if ($liveRequested) {
+                            if ($reopenLiveSendPulseDelayMs > 0) {
+                                usleep($reopenLiveSendPulseDelayMs * 1000);
+                            }
+                        } elseif ($lastSpLookupWasMade && $spRequestDelayMs > 0) {
                             usleep($spRequestDelayMs * 1000);
                         }
 
@@ -1352,6 +1365,17 @@ function processSendBatchAction(
                                         'template_name' => $templateName,
                                     ];
                                 } else {
+                                    /*
+                                     * Pacing LIVE SendPulse.
+                                     *
+                                     * El GET de revalidación ya ocurrió. Esperamos antes
+                                     * de reservar el ledger y ejecutar el POST one-shot
+                                     * del template.
+                                     */
+                                    if ($reopenLiveSendPulseDelayMs > 0) {
+                                        usleep($reopenLiveSendPulseDelayMs * 1000);
+                                    }
+
                                     $ledgerLock = acquireExclusiveLock($ledgerPath . '.lock');
                                     if ($ledgerLock === null) {
                                         throw new RuntimeException('ledger_lock_busy');
