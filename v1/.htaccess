@@ -1,0 +1,4 @@
+# Añadir al .htaccess del directorio donde vive .env
+<FilesMatch "^\.env(\..*)?$">
+    Require all denied
+</FilesMatch>
