@@ -285,16 +285,33 @@ function orchestratorResumeSendRun(
             }
 
             if (! empty($state['blocked'])) {
-                releaseOrchestratorLock($lock);
+                if (
+                    isRecoverableSenderBusyBlock(
+                        $state['blocked'],
+                        $sendRunId
+                    )
+                ) {
+                    orchestratorLog(
+                        $logPath,
+                        "SAFE_BUSY_BLOCK_CLEARED send_run_id={$sendRunId}"
+                    );
 
-                orchestratorRespond([
-                    'ok'           => false,
-                    'mode'         => 'orchestrator_resume_send_run',
-                    'status'       => 'review_required',
-                    'reason'       => 'orchestrator_is_blocked',
-                    'blocked'      => $state['blocked'],
-                    'active_cycle' => $state['active_cycle'],
-                ], 409);
+                    $state['blocked']    = null;
+                    $state['updated_at'] = date(DATE_ATOM);
+
+                    writeOrchestratorJson($statePath, $state);
+                } else {
+                    releaseOrchestratorLock($lock);
+
+                    orchestratorRespond([
+                        'ok'           => false,
+                        'mode'         => 'orchestrator_resume_send_run',
+                        'status'       => 'review_required',
+                        'reason'       => 'orchestrator_is_blocked',
+                        'blocked'      => $state['blocked'],
+                        'active_cycle' => $state['active_cycle'],
+                    ], 409);
+                }
             }
 
             $metrics = [
@@ -756,7 +773,7 @@ function orchestratorRun(
 }
 
 function runSendPhase(
-   array &$state,
+    array &$state,
     string $statePath,
     $lock,
     string $logPath,
@@ -783,6 +800,8 @@ function runSendPhase(
     }
 
     $processedThisInvocation = 0;
+
+    $busyRetryCount = 0;
 
     while (true) {
         if (
@@ -919,6 +938,44 @@ function runSendPhase(
             );
         }
 
+        if (
+            (int) ($send['http_status'] ?? 0) === 409
+            && ($send['json']['reason'] ?? '') === 'send_run_already_processing'
+        ) {
+            $busyRetryCount++;
+
+            orchestratorLog(
+                $logPath,
+                "SEND_RUN_BUSY send_run_id={$sendRunId}"
+                . " send_item_id={$pendingItemId}"
+                . " retry={$busyRetryCount}"
+            );
+
+            if ($busyRetryCount > 5) {
+                blockOrchestrator(
+                    state: $state,
+                    statePath: $statePath,
+                    phase: 'send',
+                    reason: 'sender_busy_retry_exhausted',
+                    details: [
+                        'send_run_id'  => $sendRunId,
+                        'send_item_id' => $pendingItemId,
+                        'retries'      => $busyRetryCount,
+                    ]
+                );
+
+                throw new OrchestratorBlockedException(
+                    'Sender permaneció ocupado después de varios intentos seguros.'
+                );
+            }
+
+            usleep(3_000_000);
+
+            continue;
+        }
+
+        $busyRetryCount = 0;
+
         if (($send['json']['ok'] ?? false) !== true) {
             blockOrchestrator(
                 state: $state,
@@ -982,6 +1039,22 @@ function runSendPhase(
 
         writeOrchestratorJson($statePath, $state);
     }
+}
+
+function isRecoverableSenderBusyBlock(
+    array $blocked,
+    string $sendRunId
+): bool {
+    $details = is_array($blocked['details'] ?? null)
+        ? $blocked['details']
+        : [];
+
+    return
+    ($blocked['phase'] ?? '') === 'send'
+    && ($blocked['reason'] ?? '') === 'sender_returned_error_no_auto_retry'
+    && (string) ($details['send_run_id'] ?? '') === $sendRunId
+    && (int) ($details['http_status'] ?? 0) === 409
+        && ($details['response_reason'] ?? '') === 'send_run_already_processing';
 }
 
 function assertAdoptableSendRunStatus(array $statusJson): void
@@ -1182,6 +1255,42 @@ function orchestratorSelfTest(): never
         activeCycleMatchesSendRun(
             $resumeState,
             '20260917_120000_abcd'
+        ),
+        false
+    );
+
+    $recoverableBusyBlock = [
+        'phase'   => 'send',
+        'reason'  => 'sender_returned_error_no_auto_retry',
+        'details' => [
+            'send_run_id'     => '20260916_144100_442a',
+            'http_status'     => 409,
+            'response_reason' => 'send_run_already_processing',
+        ],
+    ];
+
+    $add(
+        'sender_busy_block_is_recoverable',
+        isRecoverableSenderBusyBlock(
+            $recoverableBusyBlock,
+            '20260916_144100_442a'
+        ),
+        true
+    );
+
+    $ambiguousBlock = [
+        'phase'   => 'send',
+        'reason'  => 'sender_transport_ambiguous_no_auto_retry',
+        'details' => [
+            'send_run_id' => '20260916_144100_442a',
+        ],
+    ];
+
+    $add(
+        'ambiguous_sender_block_not_recoverable',
+        isRecoverableSenderBusyBlock(
+            $ambiguousBlock,
+            '20260916_144100_442a'
         ),
         false
     );
