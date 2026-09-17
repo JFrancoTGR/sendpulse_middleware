@@ -319,7 +319,7 @@ function orchestratorResumeSendRun(
                 maxRuntimeSeconds: $maxRuntimeSeconds,
                 maxSendItemsPerInvocation: $maxSendItemsPerInvocation,
                 runToCompletion: $runToCompletion,
-                responseMode: 'orchestrator_run',
+                responseMode: 'orchestrator_resume_send_run',
                 metrics: $metrics
             );
         }
@@ -434,7 +434,7 @@ function orchestratorResumeSendRun(
             maxRuntimeSeconds: $maxRuntimeSeconds,
             maxSendItemsPerInvocation: $maxSendItemsPerInvocation,
             runToCompletion: $runToCompletion,
-            responseMode: 'orchestrator_run',
+            responseMode: 'orchestrator_resume_send_run',
             metrics: $metrics
         );
     } catch (OrchestratorBlockedException $exception) {
