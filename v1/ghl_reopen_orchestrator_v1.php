@@ -26,6 +26,7 @@ declare (strict_types = 1);
  *   action=selftest   Sin red, sin writes operativos.
  *   action=status     Estado del orquestador.
  *   action=run        Ejecuta/reanuda el ciclo diario.
+ *   action=resume_send_run      Adopta/reanuda un send run live ya existente.
  *
  * CLI:
  *   php ghl_reopen_orchestrator_v1.php action=selftest
@@ -173,7 +174,9 @@ switch ($action) {
             liveEnabled: $liveEnabled,
             liveMaxBatchSize: $liveMaxBatchSize,
             liveRequireItemId: $liveRequireItemId,
-            runToCompletion: $runToCompletion
+            runToCompletion: $runToCompletion,
+            responseMode: 'orchestrator_run',
+            metrics: $metrics
         );
         break;
 
@@ -765,6 +768,7 @@ function runSendPhase(
     int $maxRuntimeSeconds,
     int $maxSendItemsPerInvocation,
     bool $runToCompletion,
+    string $responseMode,
     array &$metrics
 ): never {
     $sendRunId = trim((string) (
@@ -795,7 +799,7 @@ function runSendPhase(
 
             orchestratorRespond([
                 'ok'           => true,
-                'mode'         => 'orchestrator_run',
+                'mode'         => $responseMode,
                 'status'       => 'partial_send_budget',
                 'phase'        => 'send',
                 'active_cycle' => $state['active_cycle'],
@@ -865,7 +869,7 @@ function runSendPhase(
 
             orchestratorRespond([
                 'ok'           => true,
-                'mode'         => 'orchestrator_run',
+                'mode'         => $responseMode,
                 'status'       => 'complete',
                 'side_effects' =>
                 ((int) ($summary['messages_sent'] ?? 0)) > 0,
