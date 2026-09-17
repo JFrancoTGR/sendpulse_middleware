@@ -174,9 +174,7 @@ switch ($action) {
             liveEnabled: $liveEnabled,
             liveMaxBatchSize: $liveMaxBatchSize,
             liveRequireItemId: $liveRequireItemId,
-            runToCompletion: $runToCompletion,
-            responseMode: 'orchestrator_run',
-            metrics: $metrics
+            runToCompletion: $runToCompletion
         );
         break;
 
@@ -321,6 +319,7 @@ function orchestratorResumeSendRun(
                 maxRuntimeSeconds: $maxRuntimeSeconds,
                 maxSendItemsPerInvocation: $maxSendItemsPerInvocation,
                 runToCompletion: $runToCompletion,
+                responseMode: 'orchestrator_run',
                 metrics: $metrics
             );
         }
@@ -435,6 +434,7 @@ function orchestratorResumeSendRun(
             maxRuntimeSeconds: $maxRuntimeSeconds,
             maxSendItemsPerInvocation: $maxSendItemsPerInvocation,
             runToCompletion: $runToCompletion,
+            responseMode: 'orchestrator_run',
             metrics: $metrics
         );
     } catch (OrchestratorBlockedException $exception) {
@@ -723,6 +723,7 @@ function orchestratorRun(
                 maxRuntimeSeconds: $maxRuntimeSeconds,
                 maxSendItemsPerInvocation: $maxSendItemsPerInvocation,
                 runToCompletion: $runToCompletion,
+                responseMode: 'orchestrator_run',
                 metrics: $metrics
             );
         }
@@ -755,7 +756,7 @@ function orchestratorRun(
 }
 
 function runSendPhase(
-    array &$state,
+   array &$state,
     string $statePath,
     $lock,
     string $logPath,
