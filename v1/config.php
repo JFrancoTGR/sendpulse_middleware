@@ -233,12 +233,12 @@ return [
         'reopen_automation_enabled'                       => true,
         'reopen_automation_base_url'                      => 'https://estrategiaurbana.info/sendpulse/automation',
 
-        'snapshot_default_batch_size'                     => 25,
-        'snapshot_max_batch_size'                         => 50,
+        'snapshot_default_batch_size'                     => 16,
+        'snapshot_max_batch_size'                         => 16,
         'snapshot_processing_stale_minutes'               => 30,
 
-        'reopen_send_default_batch_size'                  => 10,
-        'reopen_send_max_batch_size'                      => 25,
+        'reopen_send_default_batch_size'                  => 12,
+        'reopen_send_max_batch_size'                      => 12,
         'reopen_send_processing_stale_minutes'            => 30,
 
         'http_timeout_seconds'                            => 35,
@@ -248,7 +248,7 @@ return [
         'reopen_automation_universe_script'               => 'ghl_reopen_universe_query_v1.php',
         'reopen_automation_sender_script'                 => 'ghl_reopen_send_live_guarded.php',
 
-        'reopen_automation_universe_batch_size'           => 50,
+        'reopen_automation_universe_batch_size'           => 16,
         'reopen_automation_max_send_items_per_invocation' => 150,
         'reopen_automation_max_runtime_seconds'           => 600,
         'reopen_automation_endpoint_timeout_seconds'      => 120,
