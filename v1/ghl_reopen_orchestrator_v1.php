@@ -290,6 +290,11 @@ function orchestratorResumeSendRun(
                         $state['blocked'],
                         $sendRunId
                     )
+                    || isRecoverableProcessedItemBlock(
+                        $state['blocked'],
+                        $sendRunId,
+                        $sendStorageRoot
+                    )
                 ) {
                     orchestratorLog(
                         $logPath,
@@ -940,36 +945,40 @@ function runSendPhase(
 
         if (
             (int) ($send['http_status'] ?? 0) === 409
-            && ($send['json']['reason'] ?? '') === 'send_run_already_processing'
+            && ($send['json']['reason'] ?? '') === 'selected_send_item_not_processable'
+            && ($send['json']['current_state'] ?? '') === 'processed'
         ) {
-            $busyRetryCount++;
+            $busyRetryCount = 0;
 
             orchestratorLog(
                 $logPath,
-                "SEND_RUN_BUSY send_run_id={$sendRunId}"
+                "SEND_ITEM_ALREADY_PROCESSED send_run_id={$sendRunId}"
                 . " send_item_id={$pendingItemId}"
-                . " retry={$busyRetryCount}"
             );
 
-            if ($busyRetryCount > 5) {
-                blockOrchestrator(
-                    state: $state,
-                    statePath: $statePath,
-                    phase: 'send',
-                    reason: 'sender_busy_retry_exhausted',
-                    details: [
-                        'send_run_id'  => $sendRunId,
-                        'send_item_id' => $pendingItemId,
-                        'retries'      => $busyRetryCount,
-                    ]
-                );
+            $state['active_cycle']['last_progress_at'] = date(DATE_ATOM);
+            $state['updated_at']                       = date(DATE_ATOM);
 
-                throw new OrchestratorBlockedException(
-                    'Sender permaneció ocupado después de varios intentos seguros.'
-                );
-            }
+            writeOrchestratorJson($statePath, $state);
 
-            usleep(3_000_000);
+            continue;
+        }
+
+        if (isSelectedItemAlreadyProcessedResponse($send)) {
+            $busyRetryCount = 0;
+
+            orchestratorLog(
+                $logPath,
+                "SEND_ITEM_ALREADY_PROCESSED send_run_id={$sendRunId}"
+                . " send_item_id={$pendingItemId}"
+            );
+
+            $state['active_cycle']['last_progress_at'] =
+                date(DATE_ATOM);
+
+            $state['updated_at'] = date(DATE_ATOM);
+
+            writeOrchestratorJson($statePath, $state);
 
             continue;
         }
@@ -1055,6 +1064,66 @@ function isRecoverableSenderBusyBlock(
     && (string) ($details['send_run_id'] ?? '') === $sendRunId
     && (int) ($details['http_status'] ?? 0) === 409
         && ($details['response_reason'] ?? '') === 'send_run_already_processing';
+}
+
+function isSelectedItemAlreadyProcessedResponse(array $send): bool
+{
+    return
+        (int) ($send['http_status'] ?? 0) === 409
+        && ($send['json']['reason'] ?? '')
+            === 'selected_send_item_not_processable'
+        && ($send['json']['current_state'] ?? '')
+            === 'processed';
+}
+
+function isRecoverableProcessedItemBlock(
+    array $blocked,
+    string $sendRunId,
+    string $sendStorageRoot
+): bool {
+    $details = is_array($blocked['details'] ?? null)
+        ? $blocked['details']
+        : [];
+
+    if (
+        ($blocked['phase'] ?? '') !== 'send'
+        || ($blocked['reason'] ?? '')
+        !== 'sender_returned_error_no_auto_retry'
+        || (string) ($details['send_run_id'] ?? '')
+        !== $sendRunId
+        || (int) ($details['http_status'] ?? 0) !== 409
+        || ($details['response_reason'] ?? '')
+        !== 'selected_send_item_not_processable'
+    ) {
+        return false;
+    }
+
+    $sendItemId = trim((string) (
+        $details['send_item_id'] ?? ''
+    ));
+
+    if (
+        $sendItemId === ''
+        || ! preg_match('/^send_[a-f0-9]{64}$/', $sendItemId)
+    ) {
+        return false;
+    }
+
+    $statePath =
+        $sendStorageRoot
+        . '/'
+        . $sendRunId
+        . '/state.json';
+
+    if (! is_file($statePath)) {
+        return false;
+    }
+
+    $sendState = readOrchestratorJson($statePath);
+
+    return
+        ($sendState['items'][$sendItemId]['status'] ?? '')
+        === 'processed';
 }
 
 function assertAdoptableSendRunStatus(array $statusJson): void
@@ -1291,6 +1360,47 @@ function orchestratorSelfTest(): never
         isRecoverableSenderBusyBlock(
             $ambiguousBlock,
             '20260916_144100_442a'
+        ),
+        false
+    );
+
+    $processedResponse = [
+        'http_status' => 409,
+        'json'        => [
+            'ok'            => false,
+            'reason'        => 'selected_send_item_not_processable',
+            'current_state' => 'processed',
+        ],
+    ];
+
+    $add(
+        'selected_processed_is_safe',
+        isSelectedItemAlreadyProcessedResponse(
+            $processedResponse
+        ),
+        true
+    );
+
+    $processingResponse                          = $processedResponse;
+    $processingResponse['json']['current_state'] =
+        'processing';
+
+    $add(
+        'selected_processing_is_not_safe',
+        isSelectedItemAlreadyProcessedResponse(
+            $processingResponse
+        ),
+        false
+    );
+
+    $errorResponse                          = $processedResponse;
+    $errorResponse['json']['current_state'] =
+        'error';
+
+    $add(
+        'selected_error_is_not_safe',
+        isSelectedItemAlreadyProcessedResponse(
+            $errorResponse
         ),
         false
     );
