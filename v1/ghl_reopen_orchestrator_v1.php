@@ -925,6 +925,25 @@ function runSendPhase(
          * Una falla de transporte en una llamada live es ambigua.
          * No se reintenta automáticamente.
          */
+
+        if (($send['transport_ok'] ?? false) !== true) {
+            blockOrchestrator(
+                state: $state,
+                statePath: $statePath,
+                phase: 'send',
+                reason: 'sender_transport_ambiguous_no_auto_retry',
+                details: [
+                    'send_run_id'  => $sendRunId,
+                    'send_item_id' => $pendingItemId,
+                    'curl_error'   => $send['curl_error'] ?? null,
+                ]
+            );
+
+            throw new OrchestratorBlockedException(
+                'La llamada live al sender fue ambigua. No se reintenta automáticamente.'
+            );
+        }
+
         if (
             (int) ($send['http_status'] ?? 0) === 409
             && ($send['json']['reason'] ?? '') === 'send_run_already_processing'
