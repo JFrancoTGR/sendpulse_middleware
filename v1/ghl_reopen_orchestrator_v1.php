@@ -925,41 +925,38 @@ function runSendPhase(
          * Una falla de transporte en una llamada live es ambigua.
          * No se reintenta automáticamente.
          */
-        if (($send['transport_ok'] ?? false) !== true) {
-            blockOrchestrator(
-                state: $state,
-                statePath: $statePath,
-                phase: 'send',
-                reason: 'sender_transport_ambiguous_no_auto_retry',
-                details: [
-                    'send_run_id'  => $sendRunId,
-                    'send_item_id' => $pendingItemId,
-                    'curl_error'   => $send['curl_error'] ?? null,
-                ]
-            );
-
-            throw new OrchestratorBlockedException(
-                'La llamada live al sender fue ambigua. No se reintenta automáticamente.'
-            );
-        }
-
         if (
             (int) ($send['http_status'] ?? 0) === 409
-            && ($send['json']['reason'] ?? '') === 'selected_send_item_not_processable'
-            && ($send['json']['current_state'] ?? '') === 'processed'
+            && ($send['json']['reason'] ?? '') === 'send_run_already_processing'
         ) {
-            $busyRetryCount = 0;
+            $busyRetryCount++;
 
             orchestratorLog(
                 $logPath,
-                "SEND_ITEM_ALREADY_PROCESSED send_run_id={$sendRunId}"
+                "SEND_RUN_BUSY send_run_id={$sendRunId}"
                 . " send_item_id={$pendingItemId}"
+                . " retry={$busyRetryCount}"
             );
 
-            $state['active_cycle']['last_progress_at'] = date(DATE_ATOM);
-            $state['updated_at']                       = date(DATE_ATOM);
+            if ($busyRetryCount > 5) {
+                blockOrchestrator(
+                    state: $state,
+                    statePath: $statePath,
+                    phase: 'send',
+                    reason: 'sender_busy_retry_exhausted',
+                    details: [
+                        'send_run_id'  => $sendRunId,
+                        'send_item_id' => $pendingItemId,
+                        'retries'      => $busyRetryCount,
+                    ]
+                );
 
-            writeOrchestratorJson($statePath, $state);
+                throw new OrchestratorBlockedException(
+                    'Sender permaneció ocupado después de varios intentos seguros.'
+                );
+            }
+
+            usleep(3_000_000);
 
             continue;
         }
@@ -999,6 +996,8 @@ function runSendPhase(
                     $send['json']['reason'] ?? null,
                     'response_error'  =>
                     $send['json']['error'] ?? null,
+                    'current_state'   =>
+                    $send['json']['current_state'] ?? null,
                 ]
             );
 
@@ -1069,11 +1068,11 @@ function isRecoverableSenderBusyBlock(
 function isSelectedItemAlreadyProcessedResponse(array $send): bool
 {
     return
-        (int) ($send['http_status'] ?? 0) === 409
+    (int) ($send['http_status'] ?? 0) === 409
         && ($send['json']['reason'] ?? '')
-            === 'selected_send_item_not_processable'
+        === 'selected_send_item_not_processable'
         && ($send['json']['current_state'] ?? '')
-            === 'processed';
+        === 'processed';
 }
 
 function isRecoverableProcessedItemBlock(
